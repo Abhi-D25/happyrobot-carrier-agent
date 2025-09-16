@@ -11,7 +11,7 @@ This system provides a complete backend solution for managing inbound carrier ca
 - **Dynamic Rate Negotiation** with configurable policies
 - **Real-time Analytics Dashboard** with comprehensive KPIs
 - **HappyRobot AI Integration** for conversational flow management
-- **Production-ready Architecture** with Docker, PostgreSQL, and Redis
+- **Production-ready Architecture** with Docker and SQLite
 
 ## ✨ Features & Capabilities
 
@@ -31,15 +31,117 @@ This system provides a complete backend solution for managing inbound carrier ca
 ### Production Features
 - **API Authentication**: Secure API key-based access control
 - **CORS Configuration**: Production-ready cross-origin settings
-- **Database Persistence**: PostgreSQL with SQLite fallback
+- **Database Persistence**: SQLite for assessment, PostgreSQL ready for production
 - **Docker Support**: Complete containerization with docker-compose
 - **Health Monitoring**: Comprehensive health checks and metrics
 
-## 🏃‍♂️ Quick Start (Local Development)
+## 🚀 Production Deployment Instructions
+
+### Quick Production Deployment
+
+**Use our automated deployment script:**
+
+```bash
+# Make the script executable
+chmod +x deploy.sh
+
+# Run the deployment script
+./deploy.sh
+```
+
+The script will automatically:
+- Set up environment variables
+- Build and deploy the application
+- Initialize the database
+- Start all services
+- Verify deployment
+
+### Manual Production Deployment
+
+#### Prerequisites
+- Docker & Docker Compose
+- Git
+
+#### Step-by-Step Deployment
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd carrier-agent-production
+   ```
+
+2. **Set up environment variables**
+   ```bash
+   export API_KEY="your-secure-production-api-key"
+   export FMCSA_API_KEY="your-fmcsa-api-key"
+   export ALLOWED_ORIGINS="https://yourdomain.com,https://app.happyrobot.ai"
+   ```
+
+3. **Deploy with Docker Compose**
+   ```bash
+   # Deploy API service
+   docker-compose up -d api
+   
+   # Or deploy with Nginx reverse proxy
+   docker-compose --profile production up -d
+   ```
+
+4. **Initialize database and seed data**
+   ```bash
+   # Seed the database with sample loads
+   docker-compose exec api python seed/seed_loads.py
+   ```
+
+5. **Verify deployment**
+   ```bash
+   # Health check
+   curl http://localhost:8000/api/health
+   
+   # Check API documentation
+   open http://localhost:8000/docs
+   
+   # View dashboard
+   open http://localhost:8000/dashboard
+   ```
+
+### Production Environment Configuration
+
+Create a `.env` file with the following variables:
+
+```bash
+# API Configuration
+API_KEY=your-secure-api-key-here
+PORT=8000
+DEBUG=False
+
+# Database Configuration (SQLite for assessment)
+DATABASE_URL=sqlite:///./carrier_agent.db
+
+# FMCSA API Configuration
+FMCSA_API_KEY=your-fmcsa-api-key-here
+FMCSA_BASE_URL=https://mobile.fmcsa.dot.gov/qc/services/carriers
+
+# CORS Configuration
+ALLOWED_ORIGINS=https://yourdomain.com,https://app.happyrobot.ai
+
+# Security Configuration
+SECRET_KEY=your-secret-key-for-jwt-tokens
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# HappyRobot Integration
+HAPPYROBOT_API_URL=https://api.happyrobot.ai
+HAPPYROBOT_WEBHOOK_SECRET=your-webhook-secret
+
+# Production Settings
+ENVIRONMENT=production
+LOG_LEVEL=INFO
+```
+
+## 🏃‍♂️ Local Development Setup
 
 ### Prerequisites
 - Python 3.8+
-- Docker & Docker Compose (for full stack)
+- Docker & Docker Compose (optional)
 - Git
 
 ### Local Development Setup
@@ -78,107 +180,6 @@ This system provides a complete backend solution for managing inbound carrier ca
    ```
 
 The API will be available at `http://localhost:8000`
-
-## 🚀 Production Deployment Instructions
-
-### Docker Deployment (Recommended)
-
-1. **Prepare environment variables**
-   ```bash
-   export API_KEY="your-secure-production-api-key"
-   export DB_PASSWORD="your-secure-database-password"
-   export FMCSA_API_KEY="your-fmcsa-api-key"
-   export ALLOWED_ORIGINS="https://yourdomain.com,https://app.happyrobot.ai"
-   ```
-
-2. **Deploy with Docker Compose**
-   ```bash
-   # Full stack deployment
-   docker-compose up -d
-   
-   # API only (with external database)
-   docker-compose up -d api db redis
-   
-   # With Nginx reverse proxy
-   docker-compose --profile production up -d
-   ```
-
-3. **Verify deployment**
-   ```bash
-   curl http://localhost:8000/api/health
-   ```
-
-### Manual Deployment
-
-1. **Server Requirements**
-   - Ubuntu 20.04+ or similar
-   - Python 3.8+
-   - PostgreSQL 13+
-   - Redis 6+
-   - Nginx (optional)
-
-2. **Installation Steps**
-   ```bash
-   # Install system dependencies
-   sudo apt update
-   sudo apt install python3-pip postgresql redis-server nginx
-   
-   # Create application user
-   sudo useradd -m -s /bin/bash carrier-agent
-   sudo su - carrier-agent
-   
-   # Clone and setup application
-   git clone <repository-url> /home/carrier-agent/app
-   cd /home/carrier-agent/app
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   
-   # Setup database
-   createdb carrier_db
-   python seed/seed_loads.py
-   
-   # Configure systemd service
-   sudo cp deployment/carrier-agent.service /etc/systemd/system/
-   sudo systemctl enable carrier-agent
-   sudo systemctl start carrier-agent
-   ```
-
-### Environment Configuration
-
-Create a `.env` file with the following variables:
-
-```bash
-# API Configuration
-API_KEY=your-secure-api-key-here
-PORT=8000
-DEBUG=False
-
-# Database Configuration
-DATABASE_URL=postgresql://username:password@localhost:5432/carrier_db
-
-# FMCSA API Configuration
-FMCSA_API_KEY=your-fmcsa-api-key-here
-FMCSA_BASE_URL=https://mobile.fmcsa.dot.gov/qc/services/carriers
-
-# CORS Configuration
-ALLOWED_ORIGINS=https://yourdomain.com,https://app.happyrobot.ai
-
-# Redis Configuration
-REDIS_URL=redis://localhost:6379/0
-
-# Security Configuration
-SECRET_KEY=your-secret-key-for-jwt-tokens
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# HappyRobot Integration
-HAPPYROBOT_API_URL=https://api.happyrobot.ai
-HAPPYROBOT_WEBHOOK_SECRET=your-webhook-secret
-
-# Production Settings
-ENVIRONMENT=production
-LOG_LEVEL=INFO
-```
 
 ## 📚 API Documentation
 
@@ -357,7 +358,6 @@ API_KEY=assessment-api-key-2024
 | `DATABASE_URL` | Database connection string | sqlite:///./carrier_agent.db | No |
 | `FMCSA_API_KEY` | FMCSA API key for carrier verification | - | Yes |
 | `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | - | Yes |
-| `REDIS_URL` | Redis connection string | - | No |
 | `LOG_LEVEL` | Logging level | INFO | No |
 
 ## 🐛 Troubleshooting Guide
@@ -367,7 +367,7 @@ API_KEY=assessment-api-key-2024
 #### 1. Database Connection Errors
 ```bash
 # Check database connectivity
-psql $DATABASE_URL -c "SELECT 1;"
+python -c "from api.db import SessionLocal; print('DB OK' if SessionLocal() else 'DB Error')"
 
 # Verify environment variables
 echo $DATABASE_URL
@@ -435,9 +435,8 @@ python -c "from api.db import SessionLocal; print('DB OK' if SessionLocal() else
 ### Performance Optimization
 
 1. **Database Indexing**: Ensure proper indexes on frequently queried columns
-2. **Redis Caching**: Enable Redis for session management and caching
-3. **Connection Pooling**: Configure database connection pooling
-4. **Load Balancing**: Use Nginx for load balancing in production
+2. **Connection Pooling**: Configure database connection pooling
+3. **Load Balancing**: Use Nginx for load balancing in production
 
 ## 📁 Project Structure
 
@@ -475,6 +474,7 @@ carrier-agent-production/
 │   └── init-db.sql
 ├── docker-compose.yml            # Docker configuration
 ├── Dockerfile                    # Container definition
+├── deploy.sh                     # Production deployment script
 ├── requirements.txt              # Python dependencies
 ├── run_server.py                 # Development server
 └── README.md                     # This file

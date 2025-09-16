@@ -8,45 +8,14 @@ services:
       - "8000:8000"
     environment:
       - API_KEY=${API_KEY}
-      - DATABASE_URL=postgresql://carrier_user:${DB_PASSWORD}@db:5432/carrier_db
+      - DATABASE_URL=sqlite:///./carrier_agent.db
       - FMCSA_API_KEY=${FMCSA_API_KEY}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
-      - REDIS_URL=redis://redis:6379/0
       - DEBUG=False
       - PORT=8000
-    depends_on:
-      - db
-      - redis
     volumes:
       - ./logs:/app/logs
-    restart: unless-stopped
-    networks:
-      - carrier-network
-
-  # PostgreSQL Database
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=carrier_db
-      - POSTGRES_USER=carrier_user
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infra/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - carrier-network
-
-  # Redis for session management and caching
-  redis:
-    image: redis:7-alpine
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    ports:
-      - "6379:6379"
+      - ./carrier_agent.db:/app/carrier_agent.db  # Persist SQLite database
     restart: unless-stopped
     networks:
       - carrier-network
@@ -67,26 +36,6 @@ services:
       - carrier-network
     profiles:
       - production
-
-  # Dashboard (if you add one)
-  dashboard:
-    build: ./dash
-    ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://api:8000
-      - REACT_APP_API_KEY=${API_KEY}
-    depends_on:
-      - api
-    restart: unless-stopped
-    networks:
-      - carrier-network
-    profiles:
-      - with-dashboard
-
-volumes:
-  postgres_data:
-  redis_data:
 
 networks:
   carrier-network:
