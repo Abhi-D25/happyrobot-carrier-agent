@@ -8,6 +8,8 @@ class NegotiationEvaluateRequest(BaseModel):
     listed_rate: float
     offer: float
     round: int = 1
+    market_average: float = None
+    broker_minimum: float = None
 
 router = APIRouter()
 
@@ -17,21 +19,28 @@ async def evaluate_negotiation(
     api_key: str = Depends(require_api_key)
 ):
     """
-    Evaluate negotiation and provide counter offer.
+    Evaluate negotiation using the recommended 3-round market-based formula.
     
-    Policy:
-    - Target = listed rate (100%)
-    - Floor = 93% of listed rate
-    - Accept if offer >= target
-    - Counter if offer >= floor and rounds < max
-    - Reject if offer < floor or max rounds reached
+    3-ROUND NEGOTIATION FORMULA:
+    - Initial Offer: Start 15% below market average
+    - First Counter: Move 30% of difference between initial offer and carrier's ask
+    - Final Counter: Approach fair market rate, leaving small margin for profit
+    
+    Parameters:
+    - listed_rate: The original listed rate for the load
+    - offer: The carrier's current offer
+    - round: Current negotiation round (1-3)
+    - market_average: Market average rate for this lane (optional, defaults to listed_rate)
+    - broker_minimum: Broker's minimum/walk-away price (optional, defaults to 85% of listed_rate)
     """
     try:
         policy = NegotiationPolicy()
         result = policy.evaluate_offer(
             listed_rate=request.listed_rate,
             offer=request.offer,
-            round_number=request.round
+            round_number=request.round,
+            market_average=request.market_average,
+            broker_minimum=request.broker_minimum
         )
         
         return NegotiationResponse(
