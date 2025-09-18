@@ -279,7 +279,7 @@ class ConversationManager:
                 "counter_offer": counter_offer,
                 "round": round_number,
                 "max_rounds": evaluation["max_rounds"],
-                "message": message_variations,
+                "message": message,  # FIXED: Changed from message_variations to message
                 "next_action": "await_counter_response"
             }
         
