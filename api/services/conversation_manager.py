@@ -17,6 +17,7 @@ class ConversationState(Enum):
     LOAD_SEARCH = "load_search"
     LOAD_PRESENTATION = "load_presentation"
     NEGOTIATION = "negotiation"
+    FINAL_OFFER = "final_offer"
     AGREEMENT = "agreement"
     TRANSFER = "transfer"
     COMPLETE = "complete"
@@ -206,8 +207,8 @@ class ConversationManager:
             "next_action": "await_response"
         }
     
-    def handle_negotiation(self, call_id: str, carrier_offer: float) -> Dict[str, Any]:
-        """Handle negotiation round."""
+    def handle_negotiation(self, call_id: str, carrier_ask: float) -> Dict[str, Any]:
+        """Handle negotiation round with corrected broker logic."""
         conversation = self.conversations.get(call_id)
         if not conversation:
             return {"error": "Conversation not found"}
@@ -228,43 +229,48 @@ class ConversationManager:
         conversation["negotiation_rounds"] += 1
         round_number = conversation["negotiation_rounds"]
         
-        market_average = listed_rate  # For now, use listed rate as market average
-        broker_minimum = listed_rate * 0.85  # 85% of listed rate as minimum
+        # Evaluate offer using corrected broker logic
+        market_average = listed_rate  # Use our listed rate as market baseline
+        broker_maximum = listed_rate * 1.20  # 20% above listed rate as walk-away point
         
         evaluation = self.negotiation_policy.evaluate_offer(
             listed_rate=listed_rate,
-            carrier_ask=carrier_offer,  # Changed from 'offer' to 'carrier_ask'
+            carrier_ask=carrier_ask,  # Changed from 'offer' to 'carrier_ask'
             round_number=round_number,
             market_average=market_average,
-            broker_maximum=broker_minimum  # Changed from 'broker_minimum' to 'broker_maximum'
+            broker_maximum=broker_maximum  # Changed from 'broker_minimum'
         )
         
-        conversation["data"]["last_offer"] = carrier_offer
+        conversation["data"]["last_carrier_ask"] = carrier_ask
         conversation["data"]["negotiation_history"] = conversation["data"].get("negotiation_history", [])
         conversation["data"]["negotiation_history"].append({
             "round": round_number,
-            "carrier_offer": carrier_offer,
+            "carrier_ask": carrier_ask,
             "evaluation": evaluation
         })
         
         if evaluation["outcome"] == "accept":
             conversation["state"] = ConversationState.AGREEMENT
-            conversation["data"]["final_rate"] = carrier_offer
+            conversation["data"]["final_rate"] = carrier_ask
             self._save_conversations()
             
             return {
                 "call_id": call_id,
                 "state": ConversationState.AGREEMENT.value,
                 "outcome": "accepted",
-                "final_rate": carrier_offer,
-                "message": f"Excellent! I can accept your offer of ${carrier_offer:,.2f}. Let me transfer you to our sales team to finalize the paperwork.",
+                "final_rate": carrier_ask,
+                "message": f"Perfect! I can accept your request of ${carrier_ask:,.2f}. Let me transfer you to our sales team to finalize the paperwork.",
                 "next_action": "transfer_to_sales"
             }
         
         elif evaluation["outcome"] == "counter":
             conversation["state"] = ConversationState.NEGOTIATION
             counter_offer = evaluation["counter_offer"]
+            conversation["data"]["last_counter_offer"] = counter_offer
             self._save_conversations()
+            
+            # Simple message for counter offers
+            message = f"I can move up to ${counter_offer:,.2f}. How does that work for you?"
             
             return {
                 "call_id": call_id,
@@ -273,11 +279,11 @@ class ConversationManager:
                 "counter_offer": counter_offer,
                 "round": round_number,
                 "max_rounds": evaluation["max_rounds"],
-                "message": f"I can offer ${counter_offer:,.2f}. What do you think?",
+                "message": message_variations,
                 "next_action": "await_counter_response"
             }
         
-        else:  # reject or max_rounds_reached
+        else:  # reject - final round reached
             conversation["state"] = ConversationState.FAILED
             self._save_conversations()
             
@@ -286,7 +292,7 @@ class ConversationManager:
                 "state": ConversationState.FAILED.value,
                 "outcome": "rejected",
                 "reason": evaluation["message"],
-                "message": f"I understand, but I can't go higher than that. {evaluation['message']}. Thank you for your time.",
+                "message": evaluation["message"],
                 "next_action": "end_call"
             }
     
@@ -331,7 +337,9 @@ class ConversationManager:
         if state == ConversationState.AGREEMENT:
             return "accepted"
         elif state == ConversationState.FAILED:
-            return "rejected"
+            return "rejected" 
+        elif state == ConversationState.FINAL_OFFER:
+            return "final_offer_pending"
         elif state == ConversationState.TRANSFER:
             return "transferred"
         else:
@@ -357,6 +365,41 @@ class ConversationManager:
             "destination_preference": data.get("destination_preference"),
             "rate_sensitivity": self._calculate_rate_sensitivity(conversation),
             "negotiation_aggressiveness": self._calculate_negotiation_aggressiveness(conversation)
+        }
+
+    def handle_final_offer_response(self, call_id: str, carrier_response: str) -> Dict[str, Any]:
+    """Handle carrier's response to our final maximum offer."""
+    conversation = self.conversations.get(call_id)
+    if not conversation:
+        return {"error": "Conversation not found"}
+    
+    # Parse carrier response (accept/reject)
+    if "yes" in carrier_response.lower() or "accept" in carrier_response.lower():
+        # They accepted our final offer
+        conversation["state"] = ConversationState.AGREEMENT
+        final_rate = conversation["data"].get("final_offer")
+        conversation["data"]["final_rate"] = final_rate
+        self._save_conversations()
+        
+        return {
+            "call_id": call_id,
+            "state": ConversationState.AGREEMENT.value,
+            "outcome": "accepted",
+            "final_rate": final_rate,
+            "message": f"Excellent! We have a deal at ${final_rate:,.2f}. Let me connect you with our dispatch team.",
+            "next_action": "transfer_to_sales"
+        }
+    else:
+        # They rejected our final offer
+        conversation["state"] = ConversationState.FAILED
+        self._save_conversations()
+        
+        return {
+            "call_id": call_id,
+            "state": ConversationState.FAILED.value,
+            "outcome": "no_agreement",
+            "message": "I understand. Thank you for your time, and please call back - we get new loads every day.",
+            "next_action": "end_call"
         }
     
     def _calculate_rate_sensitivity(self, conversation: Dict[str, Any]) -> str:

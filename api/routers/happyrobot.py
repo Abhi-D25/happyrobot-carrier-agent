@@ -34,7 +34,7 @@ class SearchLoadsRequest(BaseModel):
 
 class NegotiateRequest(BaseModel):
     call_id: str
-    carrier_offer: float = Field(..., description="Carrier's rate offer")
+    carrier_ask: float = Field(..., description="Carrier's rate offer")
 
 class EndCallRequest(BaseModel):
     call_id: str
@@ -152,7 +152,7 @@ async def negotiate(
         
         result = conversation_manager.handle_negotiation(
             request.call_id,
-            request.carrier_offer
+            request.carrier_ask
         )
         
         return {
