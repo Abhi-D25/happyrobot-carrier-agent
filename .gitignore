@@ -29,10 +29,9 @@ env/
 .env
 
 # Database
-*.db
 *.sqlite
 *.sqlite3
-carrier_agent.db
+app.db
 
 # IDE
 .vscode/
