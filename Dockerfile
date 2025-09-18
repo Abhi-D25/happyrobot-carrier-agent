@@ -25,7 +25,6 @@ WORKDIR /app
 # Install system dependencies for runtime
 RUN apt-get update && apt-get install -y \
     curl \
-    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder stage
