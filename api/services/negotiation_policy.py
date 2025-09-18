@@ -1,6 +1,3 @@
-"""
-Enhanced negotiation policy service with carrier-aware counter-offers.
-"""
 from typing import Dict, Any
 from enum import Enum
 
@@ -11,36 +8,32 @@ class NegotiationOutcome(Enum):
     MAX_ROUNDS_REACHED = "max_rounds_reached"
 
 class NegotiationPolicy:
-    """Policy engine for load negotiations with market-based 3-round formula."""
+    """Policy engine for load negotiations with proper broker-carrier dynamics."""
     
     def __init__(self):
         self.max_rounds = 3  # Maximum 3 rounds of negotiation
         
-        # Market-based parameters (can be configured per lane/load)
-        self.market_average_multiplier = 0.85  # Start 15% below market average
-        self.broker_minimum_multiplier = 0.85  # Broker's minimum (walk-away price)
-        self.fair_market_multiplier = 1.0  # Fair market rate
+        # Broker perspective: We want to pay LESS, carriers want MORE
+        self.initial_offer_multiplier = 0.85  # Start 15% below market average
+        self.acceptance_threshold = 1.05      # Accept if carrier asks <= 5% above listed
+        self.walk_away_threshold = 1.20       # Walk away if carrier asks >20% above listed
         
-        # Negotiation strategy parameters
-        self.first_counter_move_percentage = 0.30  # Move 30% of difference in first counter
-        self.final_counter_move_percentage = 0.80  # Move 80% toward fair market in final round
-    
-    def evaluate_offer(self, listed_rate: float, offer: float, round_number: int, 
-                      market_average: float = None, broker_minimum: float = None) -> Dict[str, Any]:
+    def evaluate_offer(self, listed_rate: float, carrier_ask: float, round_number: int, 
+                      market_average: float = None, broker_maximum: float = None) -> Dict[str, Any]:
         """
-        Evaluate a carrier's offer using the recommended 3-round negotiation formula.
+        Evaluate a carrier's rate REQUEST (they want MORE money).
         
-        Formula:
-        - Initial Offer: Start at or slightly below market average (10-15% below)
-        - First Counter: Move 25-40% of difference between initial offer and carrier's ask
-        - Final Counter: Approach fair market rate, leaving small margin for profit
+        Corrected Logic:
+        - Carrier asks: "I want $2,200 for this load"
+        - Listed rate: $2,000 (what we posted)
+        - We evaluate: Can we accept $2,200? Should we counter with less?
         
         Args:
-            listed_rate: The original listed rate for the load
-            offer: The carrier's current offer
+            listed_rate: The rate we posted/listed for this load
+            carrier_ask: The rate the carrier is REQUESTING (usually higher)
             round_number: Current negotiation round (1-based)
-            market_average: Market average rate for this lane (defaults to listed_rate)
-            broker_minimum: Broker's minimum/walk-away price (defaults to 85% of listed_rate)
+            market_average: Market average rate (defaults to listed_rate)
+            broker_maximum: Our maximum budget/walk-away price
             
         Returns:
             Dictionary with evaluation result
@@ -48,132 +41,144 @@ class NegotiationPolicy:
         # Set defaults if market data not provided
         if market_average is None:
             market_average = listed_rate
-        if broker_minimum is None:
-            broker_minimum = listed_rate * self.broker_minimum_multiplier
+        if broker_maximum is None:
+            broker_maximum = listed_rate * self.walk_away_threshold  # 20% above listed
         
         # Calculate key rates
-        initial_offer = market_average * self.market_average_multiplier  # 15% below market
-        fair_market_rate = listed_rate * self.fair_market_multiplier
+        initial_offer = market_average * self.initial_offer_multiplier  # Our starting offer (15% below market)
+        acceptance_threshold = listed_rate * self.acceptance_threshold  # Accept up to 5% above listed
         
-        # Reject if offer is below broker minimum (walk-away price)
-        if offer < broker_minimum:
+        # ACCEPT if carrier's ask is reasonable (at or below our acceptance threshold)
+        if carrier_ask <= acceptance_threshold:
+            return {
+                "outcome": NegotiationOutcome.ACCEPT.value,
+                "message": f"Great! We can work with ${carrier_ask:.2f}. Let's get the paperwork started.",
+                "listed_rate": listed_rate,
+                "market_average": market_average,
+                "broker_maximum": broker_maximum,
+                "acceptance_threshold": acceptance_threshold,
+                "counter_offer": None,
+                "round": round_number,
+                "max_rounds": self.max_rounds,
+                "accepted_rate": carrier_ask
+            }
+        
+        # REJECT if carrier asks too much (above our walk-away price)
+        if carrier_ask > broker_maximum:
             return {
                 "outcome": NegotiationOutcome.REJECT.value,
-                "message": f"Cannot accept below our minimum rate of ${broker_minimum:.2f}",
+                "message": f"I understand you need ${carrier_ask:.2f}, but our maximum budget for this load is ${broker_maximum:.2f}. We can't go higher than that.",
+                "listed_rate": listed_rate,
                 "market_average": market_average,
-                "initial_offer": initial_offer,
-                "fair_market_rate": fair_market_rate,
-                "broker_minimum": broker_minimum,
+                "broker_maximum": broker_maximum,
+                "acceptance_threshold": acceptance_threshold,
                 "counter_offer": None,
                 "round": round_number,
                 "max_rounds": self.max_rounds
             }
         
-        # Accept immediately if offer is at or below our initial offer
-        if offer <= initial_offer:
-            return {
-                "outcome": NegotiationOutcome.ACCEPT.value,
-                "message": f"Offer accepted at ${offer:.2f} - excellent rate!",
-                "market_average": market_average,
-                "initial_offer": initial_offer,
-                "fair_market_rate": fair_market_rate,
-                "broker_minimum": broker_minimum,
-                "counter_offer": None,
-                "round": round_number,
-                "max_rounds": self.max_rounds,
-                "accepted_rate": offer
-            }
-        
         # Check if we've reached max rounds
         if round_number >= self.max_rounds:
-            # Final round: accept if reasonable, otherwise walk away
-            if offer <= fair_market_rate:
+            # Final round: accept if within our maximum, otherwise walk away
+            if carrier_ask <= broker_maximum:
                 return {
                     "outcome": NegotiationOutcome.ACCEPT.value,
-                    "message": f"Final round - accepting offer at ${offer:.2f}",
+                    "message": f"This is our final round. We can accept ${carrier_ask:.2f}.",
+                    "listed_rate": listed_rate,
                     "market_average": market_average,
-                    "initial_offer": initial_offer,
-                    "fair_market_rate": fair_market_rate,
-                    "broker_minimum": broker_minimum,
+                    "broker_maximum": broker_maximum,
+                    "acceptance_threshold": acceptance_threshold,
                     "counter_offer": None,
                     "round": round_number,
                     "max_rounds": self.max_rounds,
-                    "accepted_rate": offer
+                    "accepted_rate": carrier_ask
                 }
             else:
                 return {
                     "outcome": NegotiationOutcome.REJECT.value,
-                    "message": "Maximum rounds reached - cannot reach agreement",
+                    "message": "We've reached our final round and can't meet your rate request. Thank you for your time.",
+                    "listed_rate": listed_rate,
                     "market_average": market_average,
-                    "initial_offer": initial_offer,
-                    "fair_market_rate": fair_market_rate,
-                    "broker_minimum": broker_minimum,
+                    "broker_maximum": broker_maximum,
+                    "acceptance_threshold": acceptance_threshold,
                     "counter_offer": None,
                     "round": round_number,
                     "max_rounds": self.max_rounds
                 }
         
-        # Calculate counter-offer using the 3-round formula
-        counter_offer = self._calculate_3_round_counter(
-            initial_offer, offer, round_number, fair_market_rate, broker_minimum
+        # Calculate counter-offer (we offer LESS than what they're asking)
+        counter_offer = self._calculate_broker_counter(
+            initial_offer, carrier_ask, round_number, broker_maximum, listed_rate
         )
+        
+        # Ensure we never counter with more than what they're asking
+        if counter_offer >= carrier_ask:
+            # If our counter would be equal or higher, just accept their ask
+            return {
+                "outcome": NegotiationOutcome.ACCEPT.value,
+                "message": f"You know what, ${carrier_ask:.2f} works for us. Let's do it!",
+                "listed_rate": listed_rate,
+                "market_average": market_average,
+                "broker_maximum": broker_maximum,
+                "acceptance_threshold": acceptance_threshold,
+                "counter_offer": None,
+                "round": round_number,
+                "max_rounds": self.max_rounds,
+                "accepted_rate": carrier_ask
+            }
         
         return {
             "outcome": NegotiationOutcome.COUNTER.value,
-            "message": f"Counter offer: ${counter_offer:.2f}",
+            "message": f"I understand you're looking for ${carrier_ask:.2f}. How about we meet at ${counter_offer:.2f}?",
+            "listed_rate": listed_rate,
             "market_average": market_average,
-            "initial_offer": initial_offer,
-            "fair_market_rate": fair_market_rate,
-            "broker_minimum": broker_minimum,
+            "broker_maximum": broker_maximum,
+            "acceptance_threshold": acceptance_threshold,
             "counter_offer": counter_offer,
             "round": round_number,
             "max_rounds": self.max_rounds
         }
     
-    def _calculate_3_round_counter(self, initial_offer: float, carrier_offer: float, 
-                                  round_number: int, fair_market_rate: float, 
-                                  broker_minimum: float) -> float:
+    def _calculate_broker_counter(self, initial_offer: float, carrier_ask: float, 
+                                 round_number: int, broker_maximum: float, 
+                                 listed_rate: float) -> float:
         """
-        Calculate counter-offer using the recommended 3-round negotiation formula.
+        Calculate broker's counter-offer using the 3-round formula.
         
-        Formula:
-        - Round 1: Move 25-40% of difference between initial offer and carrier's ask
-        - Round 2: Move closer to fair market rate
-        - Round 3: Approach fair market rate, leaving small margin for profit
+        Broker Logic: We start low and gradually move UP toward the carrier's ask,
+        but never exceed our maximum budget.
         
         Args:
-            initial_offer: Our initial offer (15% below market average)
-            carrier_offer: Carrier's current offer
+            initial_offer: Our initial low offer (15% below market)
+            carrier_ask: What the carrier is requesting
             round_number: Current round (1-based)
-            fair_market_rate: Fair market rate for this lane
-            broker_minimum: Broker's minimum/walk-away price
+            broker_maximum: Our walk-away price
+            listed_rate: Our posted rate
             
         Returns:
             Counter offer amount rounded to nearest $10
         """
         if round_number == 1:
-            # First Counter: Move 25-40% of difference between initial offer and carrier's ask
-            difference = carrier_offer - initial_offer
-            move_amount = difference * self.first_counter_move_percentage  # 30% of difference
-            counter = initial_offer + move_amount
+            # First Counter: Move 25-40% of difference between our initial offer and their ask
+            difference = carrier_ask - initial_offer
+            move_percentage = 0.30  # Move 30% toward their ask
+            counter = initial_offer + (difference * move_percentage)
             
         elif round_number == 2:
-            # Second Counter: Move closer to fair market rate
-            # Move 60% of remaining difference toward fair market
-            remaining_difference = fair_market_rate - initial_offer
-            move_amount = remaining_difference * 0.60
-            counter = initial_offer + move_amount
+            # Second Counter: Move closer to fair market (our listed rate)
+            # This is typically around the middle ground
+            counter = (initial_offer + listed_rate) / 2
             
-        else:  # Round 3
-            # Final Counter: Approach fair market rate, leaving small margin
-            # Move 80% toward fair market rate
-            remaining_difference = fair_market_rate - initial_offer
-            move_amount = remaining_difference * self.final_counter_move_percentage  # 80%
-            counter = initial_offer + move_amount
+        else:  # Round 3+
+            # Final Counter: Move toward our maximum, but stay below carrier ask
+            # Move 75% toward our maximum from initial offer
+            difference = broker_maximum - initial_offer
+            counter = initial_offer + (difference * 0.75)
         
         # Ensure counter is within reasonable bounds
-        counter = max(counter, broker_minimum)  # Never below broker minimum
-        counter = min(counter, fair_market_rate)  # Never above fair market
+        counter = max(counter, initial_offer)      # Never below our initial offer
+        counter = min(counter, broker_maximum)     # Never above our maximum
+        counter = min(counter, carrier_ask * 0.98) # Always slightly below their ask
         
         return self._round_to_nearest_10(counter)
     
@@ -183,11 +188,11 @@ class NegotiationPolicy:
     
     def get_negotiation_summary(self, listed_rate: float, market_average: float = None) -> Dict[str, Any]:
         """
-        Get a summary of the negotiation parameters for a load using the 3-round formula.
+        Get a summary of the negotiation parameters.
         
         Args:
-            listed_rate: The original listed rate for the load
-            market_average: Market average rate for this lane (defaults to listed_rate)
+            listed_rate: The rate we posted for this load
+            market_average: Market average rate (defaults to listed_rate)
             
         Returns:
             Dictionary with negotiation parameters
@@ -195,24 +200,22 @@ class NegotiationPolicy:
         if market_average is None:
             market_average = listed_rate
             
-        initial_offer = market_average * self.market_average_multiplier
-        fair_market_rate = listed_rate * self.fair_market_multiplier
-        broker_minimum = listed_rate * self.broker_minimum_multiplier
+        initial_offer = market_average * self.initial_offer_multiplier
+        acceptance_threshold = listed_rate * self.acceptance_threshold
+        broker_maximum = listed_rate * self.walk_away_threshold
         
         return {
             "listed_rate": listed_rate,
             "market_average": market_average,
             "initial_offer": initial_offer,
-            "fair_market_rate": fair_market_rate,
-            "broker_minimum": broker_minimum,
+            "acceptance_threshold": acceptance_threshold,
+            "broker_maximum": broker_maximum,
             "max_rounds": self.max_rounds,
             "policy": {
-                "market_average_multiplier": self.market_average_multiplier,
-                "broker_minimum_multiplier": self.broker_minimum_multiplier,
-                "fair_market_multiplier": self.fair_market_multiplier,
-                "first_counter_move_percentage": self.first_counter_move_percentage,
-                "final_counter_move_percentage": self.final_counter_move_percentage,
-                "strategy": "3-Round Market-Based Negotiation Formula",
-                "description": "Start 15% below market, move 30% of difference in round 1, approach fair market in final round"
+                "initial_offer_multiplier": self.initial_offer_multiplier,
+                "acceptance_threshold_multiplier": self.acceptance_threshold,
+                "walk_away_threshold_multiplier": self.walk_away_threshold,
+                "strategy": "3-Round Broker Negotiation (Carriers ask for MORE, we counter with LESS)",
+                "description": "Accept reasonable asks (≤5% above listed), counter progressively higher, walk away if >20% above listed"
             }
         }

@@ -1,8 +1,3 @@
-# api/services/conversation_manager.py
-"""
-Conversation state manager for HappyRobot agent integration.
-Handles the flow: MC verification → Load search → Negotiation → Transfer
-"""
 import json
 import os
 import logging
@@ -233,17 +228,15 @@ class ConversationManager:
         conversation["negotiation_rounds"] += 1
         round_number = conversation["negotiation_rounds"]
         
-        # Evaluate offer using 3-round market-based formula
-        # TODO: In the future, this could pull real market data from DAT RateView or Truckstop
         market_average = listed_rate  # For now, use listed rate as market average
         broker_minimum = listed_rate * 0.85  # 85% of listed rate as minimum
         
         evaluation = self.negotiation_policy.evaluate_offer(
             listed_rate=listed_rate,
-            offer=carrier_offer,
+            carrier_ask=carrier_offer,  # Changed from 'offer' to 'carrier_ask'
             round_number=round_number,
             market_average=market_average,
-            broker_minimum=broker_minimum
+            broker_maximum=broker_minimum  # Changed from 'broker_minimum' to 'broker_maximum'
         )
         
         conversation["data"]["last_offer"] = carrier_offer
