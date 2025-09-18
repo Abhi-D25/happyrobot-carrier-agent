@@ -8,23 +8,23 @@ class NegotiationOutcome(Enum):
     MAX_ROUNDS_REACHED = "max_rounds_reached"
 
 class NegotiationPolicy:
-    """Policy engine for load negotiations with proper broker-carrier dynamics."""
+    """Fixed policy engine for load negotiations with proper 3-round handling."""
     
     def __init__(self):
         self.max_rounds = 3
-        self.acceptance_threshold = 1.10      # Accept up to 10% above listed
-        self.walk_away_threshold = 1.35       # Walk away only if >35% above listed
+        self.acceptance_threshold = 1.05      # Accept up to 5% above listed
+        self.walk_away_threshold = 1.20       # Walk away only after 3 rounds
         self.initial_offer_multiplier = 0.85  # Our initial counters start 15% below market
         
     def evaluate_offer(self, listed_rate: float, carrier_ask: float, round_number: int, 
                       market_average: float = None, broker_maximum: float = None) -> Dict[str, Any]:
         """
-        Evaluate a carrier's rate REQUEST (they want MORE money).
+        Evaluate a carrier's rate REQUEST with proper 3-round negotiation.
         
-        Corrected Logic:
-        - Carrier asks: "I want $2,200 for this load"
-        - Listed rate: $2,000 (what we posted)
-        - We evaluate: Can we accept $2,200? Should we counter with less?
+        FIXED LOGIC:
+        - Always negotiate for rounds 1 and 2, regardless of how high the ask is
+        - Only reject in round 3 if still above our maximum budget
+        - Carriers ask for MORE money than our listed rate
         
         Args:
             listed_rate: The rate we posted/listed for this load
@@ -61,24 +61,10 @@ class NegotiationPolicy:
                 "accepted_rate": carrier_ask
             }
         
-        # REJECT if carrier asks too much (above our walk-away price)
-        if carrier_ask > broker_maximum:
-            return {
-                "outcome": NegotiationOutcome.REJECT.value,
-                "message": f"I understand you need ${carrier_ask:.2f}, but our maximum budget for this load is ${broker_maximum:.2f}. We can't go higher than that.",
-                "listed_rate": listed_rate,
-                "market_average": market_average,
-                "broker_maximum": broker_maximum,
-                "acceptance_threshold": acceptance_threshold,
-                "counter_offer": None,
-                "round": round_number,
-                "max_rounds": self.max_rounds
-            }
-        
-        # Check if we've reached max rounds
+        # FIXED: Only reject if we've reached max rounds AND they're still above our maximum
         if round_number >= self.max_rounds:
-            # Final round: accept if within our maximum, otherwise walk away
             if carrier_ask <= broker_maximum:
+                # Final round: accept if within our maximum
                 return {
                     "outcome": NegotiationOutcome.ACCEPT.value,
                     "message": f"This is our final round. We can accept ${carrier_ask:.2f}.",
@@ -92,9 +78,10 @@ class NegotiationPolicy:
                     "accepted_rate": carrier_ask
                 }
             else:
+                # Final round: reject if still above maximum
                 return {
                     "outcome": NegotiationOutcome.REJECT.value,
-                    "message": "We've reached our final round and can't meet your rate request. Thank you for your time.",
+                    "message": f"I understand you need ${carrier_ask:.2f}, but our maximum budget for this load is ${broker_maximum:.2f}. Thank you for your time.",
                     "listed_rate": listed_rate,
                     "market_average": market_average,
                     "broker_maximum": broker_maximum,
@@ -104,7 +91,7 @@ class NegotiationPolicy:
                     "max_rounds": self.max_rounds
                 }
         
-        # Calculate counter-offer (we offer LESS than what they're asking)
+        # FIXED: For rounds 1 and 2, ALWAYS counter regardless of how high their ask is
         counter_offer = self._calculate_broker_counter(
             initial_offer, carrier_ask, round_number, broker_maximum, listed_rate
         )
@@ -127,7 +114,7 @@ class NegotiationPolicy:
         
         return {
             "outcome": NegotiationOutcome.COUNTER.value,
-            "message": f"I understand you're looking for ${carrier_ask:.2f}. How about we meet at ${counter_offer:.2f}?",
+            "message": f"I understand you're looking for ${carrier_ask:.2f}. Here's what I can do: ${counter_offer:.2f}. How does that work for you?",
             "listed_rate": listed_rate,
             "market_average": market_average,
             "broker_maximum": broker_maximum,
@@ -143,8 +130,7 @@ class NegotiationPolicy:
         """
         Calculate broker's counter-offer using the 3-round formula.
         
-        Broker Logic: We start low and gradually move UP toward the carrier's ask,
-        but never exceed our maximum budget.
+        FIXED: Now handles high carrier asks properly by gradually moving toward our maximum.
         
         Args:
             initial_offer: Our initial low offer (15% below market)
@@ -157,26 +143,30 @@ class NegotiationPolicy:
             Counter offer amount rounded to nearest $10
         """
         if round_number == 1:
-            # First Counter: Move 25-40% of difference between our initial offer and their ask
-            difference = carrier_ask - initial_offer
-            move_percentage = 0.30  # Move 30% toward their ask
-            counter = initial_offer + (difference * move_percentage)
+            # First Counter: Move 30% of the way from our initial offer toward our listed rate
+            # This gives us room to negotiate upward while staying reasonable
+            difference = listed_rate - initial_offer
+            counter = initial_offer + (difference * 0.30)
             
         elif round_number == 2:
-            # Second Counter: Move closer to fair market (our listed rate)
-            # This is typically around the middle ground
-            counter = (initial_offer + listed_rate) / 2
+            # Second Counter: Move to our listed rate (our target rate)
+            # This is a fair market rate that we're comfortable with
+            counter = listed_rate
             
         else:  # Round 3+
-            # Final Counter: Move toward our maximum, but stay below carrier ask
-            # Move 75% toward our maximum from initial offer
-            difference = broker_maximum - initial_offer
-            counter = initial_offer + (difference * 0.75)
+            # Final Counter: Move 75% toward our maximum from our listed rate
+            # This is our best and final offer
+            difference = broker_maximum - listed_rate
+            counter = listed_rate + (difference * 0.75)
         
         # Ensure counter is within reasonable bounds
         counter = max(counter, initial_offer)      # Never below our initial offer
         counter = min(counter, broker_maximum)     # Never above our maximum
-        counter = min(counter, carrier_ask * 0.98) # Always slightly below their ask
+        
+        # FIXED: Only limit to 98% of their ask if they're asking for a reasonable amount
+        # For very high asks, we stick to our calculated counter
+        if carrier_ask <= broker_maximum * 1.1:  # If they're asking within 10% of our max
+            counter = min(counter, carrier_ask * 0.98)  # Stay slightly below their ask
         
         return self._round_to_nearest_10(counter)
     
@@ -213,7 +203,7 @@ class NegotiationPolicy:
                 "initial_offer_multiplier": self.initial_offer_multiplier,
                 "acceptance_threshold_multiplier": self.acceptance_threshold,
                 "walk_away_threshold_multiplier": self.walk_away_threshold,
-                "strategy": "3-Round Broker Negotiation (Carriers ask for MORE, we counter with LESS)",
-                "description": "Accept reasonable asks (≤5% above listed), counter progressively higher, walk away if >20% above listed"
+                "strategy": "3-Round Broker Negotiation (Always negotiate for 3 rounds)",
+                "description": "Accept reasonable asks (≤5% above listed), always counter for rounds 1-2, final decision in round 3"
             }
         }
