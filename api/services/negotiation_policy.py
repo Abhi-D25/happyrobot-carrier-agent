@@ -126,43 +126,26 @@ class NegotiationPolicy:
         }
     
     def _calculate_broker_counter_from_quoted_rate(self, quoted_rate: float, carrier_ask: float, 
-                                                  round_number: int, broker_maximum: float) -> float:
-        """
-        Calculate broker's counter-offer starting from the rate we quoted to the carrier.
-        
-        FREIGHT BROKER LOGIC: Start from what we quoted and move UP toward their ask.
-        
-        Args:
-            quoted_rate: The rate we told the carrier (our starting point)
-            carrier_ask: What the carrier is requesting (usually higher)
-            round_number: Current round (1-based)
-            broker_maximum: Our walk-away price
-            
-        Returns:
-            Counter offer amount rounded to nearest $10
-        """
-        # Calculate the gap between our quote and their ask
-        gap = carrier_ask - quoted_rate
+                                              round_number: int, broker_maximum: float) -> float:
+        # Calculate the total gap between our quote and their ask
+        total_gap = carrier_ask - quoted_rate
         
         if round_number == 1:
-            # First Counter: Move 25% of the way from our quote toward their ask
-            # Conservative first move to leave room for negotiation
-            counter = quoted_rate + (gap * 0.25)
+            # First Counter: Move 25% of total gap
+            counter = quoted_rate + (total_gap * 0.25)
             
         elif round_number == 2:
-            # Second Counter: Move 50% of the way from our quote toward their ask
-            # More generous move to show we're willing to negotiate
-            counter = quoted_rate + (gap * 0.50)
+            # Second Counter: Move 50% of total gap (should be higher than round 1)
+            counter = quoted_rate + (total_gap * 0.50)
             
         else:  # Round 3+
-            # Final Counter: Move 75% of the way from our quote toward their ask
-            # Our best offer before accept/reject decision
-            counter = quoted_rate + (gap * 0.75)
+            # Final Counter: Move 75% of total gap
+            counter = quoted_rate + (total_gap * 0.75)
         
-        # Ensure counter is within reasonable bounds
-        counter = max(counter, quoted_rate)        # Never below what we quoted
-        counter = min(counter, broker_maximum)     # Never above our maximum budget
-        counter = min(counter, carrier_ask * 0.98) # Stay slightly below their ask
+        # Apply bounds
+        counter = max(counter, quoted_rate)
+        counter = min(counter, broker_maximum)
+        counter = min(counter, carrier_ask * 0.98)
         
         return self._round_to_nearest_10(counter)
     
