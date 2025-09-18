@@ -10,21 +10,30 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from api.db import SessionLocal
-from api.models import Call
+from api.models import Call, Load
 
 def remove_mc_numbers(mc_list):
-    """Remove calls for specific MC numbers."""
+    """Remove calls and loads for specific MC numbers."""
     db = SessionLocal()
     
     try:
-        total_deleted = 0
+        total_calls_deleted = 0
+        total_loads_deleted = 0
+        
         for mc in mc_list:
-            deleted_count = db.query(Call).filter(Call.carrier_mc == mc).delete()
-            print(f"Deleted {deleted_count} calls for MC {mc}")
-            total_deleted += deleted_count
+            # Remove calls with this carrier_mc
+            calls_deleted = db.query(Call).filter(Call.carrier_mc == mc).delete()
+            print(f"Deleted {calls_deleted} calls for carrier MC {mc}")
+            total_calls_deleted += calls_deleted
+            
+            # Remove loads with this broker_mc
+            loads_deleted = db.query(Load).filter(Load.broker_mc == mc).delete()
+            print(f"Deleted {loads_deleted} loads for broker MC {mc}")
+            total_loads_deleted += loads_deleted
         
         db.commit()
-        print(f"Total calls deleted: {total_deleted}")
+        print(f"Total calls deleted: {total_calls_deleted}")
+        print(f"Total loads deleted: {total_loads_deleted}")
         return True
         
     except Exception as e:
