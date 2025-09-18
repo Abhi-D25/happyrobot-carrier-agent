@@ -21,13 +21,14 @@ class NegotiationPolicy:
         """
         Evaluate a carrier's rate REQUEST with proper 3-round negotiation.
         
-        FIXED LOGIC:
+        FREIGHT BROKER LOGIC:
+        - Start negotiations from the quoted/listed rate (what agent told carrier)
         - Always negotiate for rounds 1 and 2, regardless of how high the ask is
         - Only reject in round 3 if still above our maximum budget
-        - Carriers ask for MORE money than our listed rate
+        - Move upward from our quoted rate when carrier asks for more
         
         Args:
-            listed_rate: The rate we posted/listed for this load
+            listed_rate: The rate we quoted to the carrier (our starting point)
             carrier_ask: The rate the carrier is REQUESTING (usually higher)
             round_number: Current negotiation round (1-based)
             market_average: Market average rate (defaults to listed_rate)
@@ -42,8 +43,8 @@ class NegotiationPolicy:
         if broker_maximum is None:
             broker_maximum = listed_rate * self.walk_away_threshold  # 20% above listed
         
-        # Calculate key rates
-        initial_offer = market_average * self.initial_offer_multiplier  # Our starting offer (15% below market)
+        # Calculate key rates - use listed_rate as our baseline (what we quoted)
+        quoted_rate = listed_rate  # This is what the agent told the carrier
         acceptance_threshold = listed_rate * self.acceptance_threshold  # Accept up to 5% above listed
         
         # ACCEPT if carrier's ask is reasonable (at or below our acceptance threshold)
@@ -92,8 +93,8 @@ class NegotiationPolicy:
                 }
         
         # FIXED: For rounds 1 and 2, ALWAYS counter regardless of how high their ask is
-        counter_offer = self._calculate_broker_counter(
-            initial_offer, carrier_ask, round_number, broker_maximum, listed_rate
+        counter_offer = self._calculate_broker_counter_from_quoted_rate(
+            quoted_rate, carrier_ask, round_number, broker_maximum
         )
         
         # Ensure we never counter with more than what they're asking
@@ -124,51 +125,55 @@ class NegotiationPolicy:
             "max_rounds": self.max_rounds
         }
     
-    def _calculate_broker_counter(self, initial_offer: float, carrier_ask: float, 
-                                 round_number: int, broker_maximum: float, 
-                                 listed_rate: float) -> float:
+    def _calculate_broker_counter_from_quoted_rate(self, quoted_rate: float, carrier_ask: float, 
+                                                  round_number: int, broker_maximum: float) -> float:
         """
-        Calculate broker's counter-offer using the 3-round formula.
+        Calculate broker's counter-offer starting from the rate we quoted to the carrier.
         
-        FIXED: Now handles high carrier asks properly by gradually moving toward our maximum.
+        FREIGHT BROKER LOGIC: Start from what we quoted and move UP toward their ask.
         
         Args:
-            initial_offer: Our initial low offer (15% below market)
-            carrier_ask: What the carrier is requesting
+            quoted_rate: The rate we told the carrier (our starting point)
+            carrier_ask: What the carrier is requesting (usually higher)
             round_number: Current round (1-based)
             broker_maximum: Our walk-away price
-            listed_rate: Our posted rate
             
         Returns:
             Counter offer amount rounded to nearest $10
         """
+        # Calculate the gap between our quote and their ask
+        gap = carrier_ask - quoted_rate
+        
         if round_number == 1:
-            # First Counter: Move 30% of the way from our initial offer toward our listed rate
-            # This gives us room to negotiate upward while staying reasonable
-            difference = listed_rate - initial_offer
-            counter = initial_offer + (difference * 0.30)
+            # First Counter: Move 25% of the way from our quote toward their ask
+            # Conservative first move to leave room for negotiation
+            counter = quoted_rate + (gap * 0.25)
             
         elif round_number == 2:
-            # Second Counter: Move to our listed rate (our target rate)
-            # This is a fair market rate that we're comfortable with
-            counter = listed_rate
+            # Second Counter: Move 50% of the way from our quote toward their ask
+            # More generous move to show we're willing to negotiate
+            counter = quoted_rate + (gap * 0.50)
             
         else:  # Round 3+
-            # Final Counter: Move 75% toward our maximum from our listed rate
-            # This is our best and final offer
-            difference = broker_maximum - listed_rate
-            counter = listed_rate + (difference * 0.75)
+            # Final Counter: Move 75% of the way from our quote toward their ask
+            # Our best offer before accept/reject decision
+            counter = quoted_rate + (gap * 0.75)
         
         # Ensure counter is within reasonable bounds
-        counter = max(counter, initial_offer)      # Never below our initial offer
-        counter = min(counter, broker_maximum)     # Never above our maximum
-        
-        # FIXED: Only limit to 98% of their ask if they're asking for a reasonable amount
-        # For very high asks, we stick to our calculated counter
-        if carrier_ask <= broker_maximum * 1.1:  # If they're asking within 10% of our max
-            counter = min(counter, carrier_ask * 0.98)  # Stay slightly below their ask
+        counter = max(counter, quoted_rate)        # Never below what we quoted
+        counter = min(counter, broker_maximum)     # Never above our maximum budget
+        counter = min(counter, carrier_ask * 0.98) # Stay slightly below their ask
         
         return self._round_to_nearest_10(counter)
+    
+    def _calculate_broker_counter(self, initial_offer: float, carrier_ask: float, 
+                                 round_number: int, broker_maximum: float, 
+                                 listed_rate: float) -> float:
+        """
+        Legacy method - kept for compatibility but not used in new logic.
+        """
+        # This method is deprecated but kept for any legacy calls
+        return self._calculate_broker_counter_from_quoted_rate(listed_rate, carrier_ask, round_number, broker_maximum)
     
     def _round_to_nearest_10(self, amount: float) -> float:
         """Round amount to nearest $10."""
@@ -179,7 +184,7 @@ class NegotiationPolicy:
         Get a summary of the negotiation parameters.
         
         Args:
-            listed_rate: The rate we posted for this load
+            listed_rate: The rate we quoted to the carrier
             market_average: Market average rate (defaults to listed_rate)
             
         Returns:
@@ -188,22 +193,25 @@ class NegotiationPolicy:
         if market_average is None:
             market_average = listed_rate
             
-        initial_offer = market_average * self.initial_offer_multiplier
+        quoted_rate = listed_rate  # What we told the carrier
         acceptance_threshold = listed_rate * self.acceptance_threshold
         broker_maximum = listed_rate * self.walk_away_threshold
         
         return {
-            "listed_rate": listed_rate,
+            "quoted_rate": quoted_rate,
             "market_average": market_average,
-            "initial_offer": initial_offer,
             "acceptance_threshold": acceptance_threshold,
             "broker_maximum": broker_maximum,
             "max_rounds": self.max_rounds,
             "policy": {
-                "initial_offer_multiplier": self.initial_offer_multiplier,
                 "acceptance_threshold_multiplier": self.acceptance_threshold,
                 "walk_away_threshold_multiplier": self.walk_away_threshold,
-                "strategy": "3-Round Broker Negotiation (Always negotiate for 3 rounds)",
-                "description": "Accept reasonable asks (≤5% above listed), always counter for rounds 1-2, final decision in round 3"
+                "strategy": "3-Round Freight Broker Negotiation (Start from quoted rate)",
+                "description": "Quote fair rate upfront, then negotiate upward from quoted rate over 3 rounds",
+                "round_progression": {
+                    "round_1": "Move 25% from quoted rate toward carrier ask",
+                    "round_2": "Move 50% from quoted rate toward carrier ask", 
+                    "round_3": "Move 75% from quoted rate toward carrier ask (final offer)"
+                }
             }
         }
