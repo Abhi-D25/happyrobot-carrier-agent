@@ -368,39 +368,39 @@ class ConversationManager:
         }
 
     def handle_final_offer_response(self, call_id: str, carrier_response: str) -> Dict[str, Any]:
-    """Handle carrier's response to our final maximum offer."""
-    conversation = self.conversations.get(call_id)
-    if not conversation:
-        return {"error": "Conversation not found"}
-    
-    # Parse carrier response (accept/reject)
-    if "yes" in carrier_response.lower() or "accept" in carrier_response.lower():
-        # They accepted our final offer
-        conversation["state"] = ConversationState.AGREEMENT
-        final_rate = conversation["data"].get("final_offer")
-        conversation["data"]["final_rate"] = final_rate
-        self._save_conversations()
+        """Handle carrier's response to our final maximum offer."""
+        conversation = self.conversations.get(call_id)
+        if not conversation:
+            return {"error": "Conversation not found"}
         
-        return {
-            "call_id": call_id,
-            "state": ConversationState.AGREEMENT.value,
-            "outcome": "accepted",
-            "final_rate": final_rate,
-            "message": f"Excellent! We have a deal at ${final_rate:,.2f}. Let me connect you with our dispatch team.",
-            "next_action": "transfer_to_sales"
-        }
-    else:
-        # They rejected our final offer
-        conversation["state"] = ConversationState.FAILED
-        self._save_conversations()
-        
-        return {
-            "call_id": call_id,
-            "state": ConversationState.FAILED.value,
-            "outcome": "no_agreement",
-            "message": "I understand. Thank you for your time, and please call back - we get new loads every day.",
-            "next_action": "end_call"
-        }
+        # Parse carrier response (accept/reject)
+        if "yes" in carrier_response.lower() or "accept" in carrier_response.lower():
+            # They accepted our final offer
+            conversation["state"] = ConversationState.AGREEMENT
+            final_rate = conversation["data"].get("final_offer")
+            conversation["data"]["final_rate"] = final_rate
+            self._save_conversations()
+            
+            return {
+                "call_id": call_id,
+                "state": ConversationState.AGREEMENT.value,
+                "outcome": "accepted",
+                "final_rate": final_rate,
+                "message": f"Excellent! We have a deal at ${final_rate:,.2f}. Let me connect you with our dispatch team.",
+                "next_action": "transfer_to_sales"
+            }
+        else:
+            # They rejected our final offer
+            conversation["state"] = ConversationState.FAILED
+            self._save_conversations()
+            
+            return {
+                "call_id": call_id,
+                "state": ConversationState.FAILED.value,
+                "outcome": "no_agreement",
+                "message": "I understand. Thank you for your time, and please call back - we get new loads every day.",
+                "next_action": "end_call"
+            }
     
     def _calculate_rate_sensitivity(self, conversation: Dict[str, Any]) -> str:
         """Calculate how sensitive carrier is to rates."""

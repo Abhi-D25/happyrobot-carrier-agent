@@ -11,12 +11,10 @@ class NegotiationPolicy:
     """Policy engine for load negotiations with proper broker-carrier dynamics."""
     
     def __init__(self):
-        self.max_rounds = 3  # Maximum 3 rounds of negotiation
-        
-        # Broker perspective: We want to pay LESS, carriers want MORE
-        self.initial_offer_multiplier = 0.85  # Start 15% below market average
-        self.acceptance_threshold = 1.05      # Accept if carrier asks <= 5% above listed
-        self.walk_away_threshold = 1.20       # Walk away if carrier asks >20% above listed
+        self.max_rounds = 3
+        self.acceptance_threshold = 1.10      # Accept up to 10% above listed
+        self.walk_away_threshold = 1.35       # Walk away only if >35% above listed
+        self.initial_offer_multiplier = 0.85  # Our initial counters start 15% below market
         
     def evaluate_offer(self, listed_rate: float, carrier_ask: float, round_number: int, 
                       market_average: float = None, broker_maximum: float = None) -> Dict[str, Any]:
